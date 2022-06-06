@@ -1,6 +1,8 @@
-use clap::Parser;
 use std::net::SocketAddr;
-use tarpc::{client, context, tokio_serde::formats::Json};
+
+use clap::Parser;
+use jsonrpc::{arg, Client};
+use serde::Serialize;
 
 #[derive(Parser)]
 struct Flags {
@@ -8,33 +10,33 @@ struct Flags {
     server_addr: SocketAddr,
     #[clap(long)]
     name: String,
+    #[clap(long)]
+    password: String,
 }
 
-#[tarpc::service]
-pub trait BitcoinRpc {
-    async fn get_block_template(template_request: String) -> String;
+#[derive(Serialize)]
+struct GetBlockTemplateParams {
+    rules: Vec<String>,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let flags = Flags::parse();
 
-    let transport = tarpc::serde_transport::tcp::connect(flags.server_addr, Json::default);
+    let client = Client::simple_http("127.0.0.1", Some(flags.name), Some(flags.password))
+        .expect("client creation error");
 
-    let client = BitcoinRpcClient::new(client::Config::default(), transport.await?).spawn();
+    let params = GetBlockTemplateParams {
+        rules: vec!["segwit".to_string()],
+    };
 
-    let template = async move {
-        client
-            .get_block_template(
-                context::current(),
-                String::from("{\"rules\": [\"segwit\"]}"),
-            )
-            .await
-    }
-    .await
-    .unwrap();
+    let args = vec![arg(params)];
 
-    println!("{template}");
+    let request = client.build_request("getblocktemplate", &args);
+
+    let response = client.send_request(request).unwrap();
+
+    println!("response {:#?}", response);
 
     Ok(())
 }
