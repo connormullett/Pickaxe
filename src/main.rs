@@ -23,10 +23,18 @@ async fn main() -> anyhow::Result<()> {
 
     let client = BitcoinRpcClient::new(client::Config::default(), transport.await?).spawn();
 
-    let _block_template = async move {
-        tokio::select! {template = client.get_block_template(context::current(), String::from("{}")) => {template}}
+    let template = async move {
+        client
+            .get_block_template(
+                context::current(),
+                String::from("{\"rules\": [\"segwit\"]}"),
+            )
+            .await
     }
-    .await;
+    .await
+    .unwrap();
+
+    println!("{template}");
 
     Ok(())
 }
