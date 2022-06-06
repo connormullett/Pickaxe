@@ -1,8 +1,9 @@
+#![allow(dead_code)]
 use std::net::SocketAddr;
 
 use clap::Parser;
 use jsonrpc::{arg, Client};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]
 struct Flags {
@@ -12,6 +13,52 @@ struct Flags {
     name: String,
     #[clap(long)]
     password: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct VbAvailable {
+    rulename: Option<i32>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct Transaction {
+    data: String,
+    txid: String,
+    hash: String,
+    depends: Vec<i32>,
+    fee: i32,
+    sigops: i32,
+    weight: i32,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct CoinbaseAuxValues {
+    key: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct GetBlockTemplateReturn {
+    capabilities: Vec<String>,
+    version: i32,
+    rules: Vec<String>,
+    vbavailable: Option<VbAvailable>,
+    vbrequired: i32,
+    previousblockhash: String,
+    transactions: Vec<Transaction>,
+    coinbaseaux: Option<CoinbaseAuxValues>,
+    coinbasevalue: i32,
+    longpollid: String,
+    target: String,
+    mintime: i128,
+    mutable: Vec<String>,
+    noncerange: String,
+    sigoplimit: i32,
+    sizelimit: i32,
+    weightlimit: i32,
+    curtime: i128,
+    bits: String,
+    height: i32,
+    default_witness_commitment: String,
 }
 
 #[derive(Serialize)]
@@ -36,7 +83,9 @@ async fn main() -> anyhow::Result<()> {
 
     let response = client.send_request(request).unwrap();
 
-    println!("response {:#?}", response);
+    let template: GetBlockTemplateReturn = response.result().unwrap();
+
+    println!("{:#?}", template.transactions.get(0).unwrap());
 
     Ok(())
 }
