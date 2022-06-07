@@ -1,6 +1,6 @@
-#![allow(dead_code)]
-use std::net::SocketAddr;
+use std::{net::SocketAddr, str::FromStr};
 
+use bitcoin::{OutPoint, Script, Transaction, TxIn, TxOut};
 use clap::Parser;
 use jsonrpc::{arg, Client};
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,8 @@ pub struct VbAvailable {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct Transaction {
+#[serde(tag = "transaction")]
+pub struct Tx {
     data: String,
     txid: String,
     hash: String,
@@ -44,7 +45,7 @@ pub struct GetBlockTemplateReturn {
     vbavailable: Option<VbAvailable>,
     vbrequired: i32,
     previousblockhash: String,
-    transactions: Vec<Transaction>,
+    transactions: Vec<Tx>,
     coinbaseaux: Option<CoinbaseAuxValues>,
     coinbasevalue: i32,
     longpollid: String,
@@ -88,4 +89,43 @@ async fn main() -> anyhow::Result<()> {
     println!("{:#?}", template.transactions.get(0).unwrap());
 
     Ok(())
+}
+
+pub async fn create_coinbase(
+    public_key_hash: String,
+    block_height: i32,
+    value: u64,
+) -> Transaction {
+    let outpoint = OutPoint::null();
+
+    let signature = format!(
+        "{}{}",
+        hex::encode(block_height.to_string().as_bytes()),
+        hex::encode(b"pickaxe-miner")
+    );
+
+    let script_sig = format!("{}{}", signature.bytes().len(), signature);
+
+    let input = TxIn {
+        previous_output: outpoint,
+        script_sig: Script::from_str(&script_sig).expect("coinbase script sig creation error"),
+        sequence: u32::max_value(),
+        ..Default::default()
+    };
+
+    let script_pubkey = format!("76a914{}88ac", public_key_hash);
+
+    let output = TxOut {
+        value,
+        script_pubkey: Script::from_str(&script_pubkey).expect("coinbase script pubkey failed"),
+    };
+
+    let tx = Transaction {
+        version: 1,
+        lock_time: 0,
+        input: vec![input],
+        output: vec![output],
+    };
+
+    tx
 }
