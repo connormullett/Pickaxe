@@ -130,28 +130,34 @@ async fn main() -> anyhow::Result<()> {
         .expect("time went backwards")
         .as_secs();
 
-    let header = BlockHeader {
-        version: template.version,
-        prev_blockhash: BlockHash::from_hex(&template.previousblockhash).unwrap(),
-        merkle_root: TxMerkleNode::from_hex(&hex::encode(root)).unwrap(),
-        time: time.try_into().unwrap(),
-        bits: u32::from_str_radix(&template.bits, 16).unwrap(),
-        nonce: 1,
-    };
+    let nonce_max = u32::from_str_radix(&template.noncerange, 16).unwrap();
 
-    let target_bytes = BlockHeader::u256_from_compact_target(header.bits).to_be_bytes();
-    let target_value = BigUint::from_bytes_be(&target_bytes);
+    for nonce in 1..=nonce_max {
+        let header = BlockHeader {
+            version: template.version,
+            prev_blockhash: BlockHash::from_hex(&template.previousblockhash).unwrap(),
+            merkle_root: TxMerkleNode::from_hex(&hex::encode(root)).unwrap(),
+            time: time.try_into().unwrap(),
+            bits: u32::from_str_radix(&template.bits, 16).unwrap(),
+            nonce,
+        };
 
-    let hash = header.block_hash().into_inner();
-    let hash_value = BigUint::from_bytes_be(&hash);
+        let target_bytes = BlockHeader::u256_from_compact_target(header.bits).to_be_bytes();
+        let target_value = BigUint::from_bytes_be(&target_bytes);
 
-    if hash_value < target_value {
-        println!("found block at {} with target {}", hash_value, target_value);
-    } else {
-        println!(
-            "didnt find block at {} with target {}",
-            hash_value, target_value
-        );
+        let hash = header.block_hash().into_inner();
+        let hash_value = BigUint::from_bytes_be(&hash);
+
+        print!("{nonce} ");
+        if hash_value < target_value {
+            println!("found block at {} with target {}", hash_value, target_value);
+            break;
+        } else {
+            println!(
+                "didnt find block at {} with target {}",
+                hash_value, target_value
+            );
+        }
     }
 
     Ok(())
