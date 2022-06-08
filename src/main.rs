@@ -6,11 +6,12 @@ use std::{
 
 use bitcoin::{
     consensus::{deserialize, serialize},
-    hashes::hex::FromHex,
+    hashes::{hex::FromHex, Hash},
     BlockHash, BlockHeader, OutPoint, Script, Transaction, TxIn, TxMerkleNode, TxOut,
 };
 use clap::Parser;
 use jsonrpc::{arg, Client};
+use num_bigint::BigUint;
 use rs_merkle::{algorithms::Sha256, Hasher, MerkleTree};
 use serde::{Deserialize, Serialize};
 
@@ -24,11 +25,13 @@ struct Flags {
     password: String,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 pub struct VbAvailable {
     rulename: Option<i32>,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 #[serde(tag = "transaction")]
 pub struct Tx {
@@ -41,11 +44,13 @@ pub struct Tx {
     weight: i32,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 pub struct CoinbaseAuxValues {
     key: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 pub struct GetBlockTemplateReturn {
     capabilities: Vec<String>,
@@ -134,9 +139,20 @@ async fn main() -> anyhow::Result<()> {
         nonce: 1,
     };
 
-    let hash = header.block_hash();
+    let target_bytes = BlockHeader::u256_from_compact_target(header.bits).to_be_bytes();
+    let target_value = BigUint::from_bytes_be(&target_bytes);
 
-    println!("{:?}", hash);
+    let hash = header.block_hash().into_inner();
+    let hash_value = BigUint::from_bytes_be(&hash);
+
+    if hash_value < target_value {
+        println!("found block at {} with target {}", hash_value, target_value);
+    } else {
+        println!(
+            "didnt find block at {} with target {}",
+            hash_value, target_value
+        );
+    }
 
     Ok(())
 }
