@@ -130,9 +130,13 @@ async fn main() -> anyhow::Result<()> {
         prev_blockhash: BlockHash::from_hex(&template.previousblockhash).unwrap(),
         merkle_root: TxMerkleNode::from_hex(&hex::encode(root)).unwrap(),
         time: time.try_into().unwrap(),
-        bits: template.bits,
-        nonce: todo!(),
+        bits: u32::from_str_radix(&template.bits, 16).unwrap(),
+        nonce: 1,
     };
+
+    let hash = header.block_hash();
+
+    println!("{:?}", hash);
 
     Ok(())
 }
