@@ -1,6 +1,11 @@
 use std::{
     net::SocketAddr,
     str::FromStr,
+    sync::{
+        mpsc::{self, Receiver, Sender},
+        Arc,
+    },
+    thread,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -11,9 +16,29 @@ use bitcoin::{
 };
 use clap::Parser;
 use jsonrpc::{arg, Client};
+use lazy_static::lazy_static;
 use num_bigint::BigUint;
 use rs_merkle::{algorithms::Sha256, Hasher, MerkleTree};
 use serde::{Deserialize, Serialize};
+
+lazy_static! {
+    static ref NUM_CPUS: usize = num_cpus::get();
+}
+
+#[derive(Clone)]
+struct HeaderTemplate {
+    version: i32,
+    prev_blockhash: BlockHash,
+    merkle_root: TxMerkleNode,
+    time: u32,
+    bits: u32,
+}
+
+#[derive(Clone)]
+struct WonBlockResult {
+    hash: String,
+    nonce: u32,
+}
 
 #[derive(Parser)]
 struct Flags {
@@ -26,13 +51,13 @@ struct Flags {
 }
 
 #[allow(dead_code)]
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct VbAvailable {
     rulename: Option<i32>,
 }
 
 #[allow(dead_code)]
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "transaction")]
 pub struct Tx {
     data: String,
@@ -45,13 +70,13 @@ pub struct Tx {
 }
 
 #[allow(dead_code)]
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct CoinbaseAuxValues {
     key: Option<String>,
 }
 
 #[allow(dead_code)]
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct GetBlockTemplateReturn {
     capabilities: Vec<String>,
     version: i32,
@@ -130,34 +155,76 @@ async fn main() -> anyhow::Result<()> {
         .expect("time went backwards")
         .as_secs();
 
+    let header = HeaderTemplate {
+        version: template.version,
+        prev_blockhash: BlockHash::from_hex(&template.previousblockhash).unwrap(),
+        merkle_root: TxMerkleNode::from_hex(&hex::encode(root)).unwrap(),
+        time: time.try_into().unwrap(),
+        bits: u32::from_str_radix(&template.bits, 16).unwrap(),
+    };
+
+    let header = Arc::new(header);
+
     let nonce_max = u32::from_str_radix(&template.noncerange, 16).unwrap();
 
-    for nonce in 1..=nonce_max {
-        let header = BlockHeader {
-            version: template.version,
-            prev_blockhash: BlockHash::from_hex(&template.previousblockhash).unwrap(),
-            merkle_root: TxMerkleNode::from_hex(&hex::encode(root)).unwrap(),
-            time: time.try_into().unwrap(),
-            bits: u32::from_str_radix(&template.bits, 16).unwrap(),
-            nonce,
-        };
+    let mut counter = 0;
+    let chunk_size = nonce_max / *NUM_CPUS as u32;
 
-        let target_bytes = BlockHeader::u256_from_compact_target(header.bits).to_be_bytes();
-        let target_value = BigUint::from_bytes_be(&target_bytes);
+    let mut children = Vec::new();
 
-        let hash = header.block_hash().into_inner();
-        let hash_value = BigUint::from_bytes_be(&hash);
+    let (tx, rx): (Sender<WonBlockResult>, Receiver<WonBlockResult>) = mpsc::channel();
 
-        print!("{nonce} ");
-        if hash_value < target_value {
-            println!("found block at {} with target {}", hash_value, target_value);
-            break;
-        } else {
-            println!(
-                "didnt find block at {} with target {}",
-                hash_value, target_value
-            );
-        }
+    for cpu in 0..*NUM_CPUS {
+        let range = counter..counter + chunk_size;
+        counter += chunk_size;
+        let header_clone = header.clone();
+        let thread_tx = tx.clone();
+
+        let child = thread::spawn(move || {
+            for nonce in range {
+                let header_template = header_clone.clone();
+
+                let header = BlockHeader {
+                    version: header_template.version,
+                    prev_blockhash: header_template.prev_blockhash,
+                    merkle_root: header_template.merkle_root,
+                    time: header_template.time,
+                    bits: header_template.bits,
+                    nonce,
+                };
+
+                let target_bytes = BlockHeader::u256_from_compact_target(header.bits).to_be_bytes();
+                let target_value = BigUint::from_bytes_be(&target_bytes);
+
+                let hash = header.block_hash().into_inner();
+                let hash_value = BigUint::from_bytes_be(&hash);
+
+                println!("{} :: {} {}", cpu, nonce, hex::encode(hash));
+
+                if hash_value < target_value {
+                    let won_block_result = WonBlockResult {
+                        hash: hex::encode(hash),
+                        nonce,
+                    };
+
+                    thread_tx.send(won_block_result).unwrap();
+                    break;
+                }
+            }
+        });
+
+        children.push(child);
+    }
+
+    let won_block_hash = rx.recv().unwrap();
+
+    println!(
+        "WON BLOCK! {} with nonce {}",
+        won_block_hash.hash, won_block_hash.nonce
+    );
+
+    for child in children {
+        child.join().expect("child thread panicked");
     }
 
     Ok(())
