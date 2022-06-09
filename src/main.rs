@@ -134,8 +134,7 @@ async fn main() -> anyhow::Result<()> {
         .iter()
         .map(|tx| {
             let tx_hex = Vec::from_hex(&tx.data).unwrap();
-            let transaction = deserialize(&tx_hex).unwrap();
-            transaction
+            deserialize(&tx_hex).unwrap()
         })
         .collect();
 
@@ -259,12 +258,10 @@ pub async fn create_coinbase(
         script_pubkey: Script::from_str(&script_pubkey).expect("coinbase script pubkey failed"),
     };
 
-    let tx = Transaction {
+    Transaction {
         version: 1,
         lock_time: 0,
         input: vec![input],
         output: vec![output],
-    };
-
-    tx
+    }
 }
