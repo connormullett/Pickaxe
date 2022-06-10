@@ -1,5 +1,4 @@
 use std::{
-    ffi::CString,
     net::SocketAddr,
     str::FromStr,
     sync::{
@@ -12,7 +11,7 @@ use std::{
 
 use bitcoin::{
     consensus::{deserialize, serialize, Encodable},
-    hashes::{hex::FromHex, Hash},
+    hashes::hex::FromHex,
     BlockHash, BlockHeader, OutPoint, Script, Transaction, TxIn, TxMerkleNode, TxOut,
 };
 use clap::Parser;
@@ -20,13 +19,6 @@ use jsonrpc::{arg, Client};
 use lazy_static::lazy_static;
 use num_bigint::BigUint;
 use rs_merkle::{algorithms::Sha256, Hasher, MerkleTree};
-use rustacuda::{
-    context::{Context, ContextFlags},
-    device::Device,
-    memory::DeviceBox,
-    prelude::*,
-    CudaFlags,
-};
 use serde::{Deserialize, Serialize};
 
 lazy_static! {
@@ -181,21 +173,6 @@ async fn main() -> anyhow::Result<()> {
 
     let (tx, rx): (Sender<WonBlockResult>, Receiver<WonBlockResult>) = mpsc::channel();
 
-    // init cuda
-    rustacuda::init(CudaFlags::empty()).unwrap();
-
-    // get the first device
-    let device = Device::get_device(0).unwrap();
-
-    // create device context
-    let context =
-        Context::create_and_push(ContextFlags::MAP_HOST | ContextFlags::SCHED_AUTO, device)
-            .unwrap();
-
-    // load the sha256 module
-    let module_data = CString::new(include_str!("../sha256.ptx")).unwrap();
-    let module = Module::load_from_string(&module_data).unwrap();
-
     for cpu in 0..*NUM_CPUS {
         let range = counter..counter + chunk_size;
         counter += chunk_size;
@@ -215,27 +192,27 @@ async fn main() -> anyhow::Result<()> {
                     nonce,
                 };
 
-                // create a stream to submit work to
-                let stream = Stream::new(StreamFlags::NON_BLOCKING, None).unwrap();
-                let stream = Arc::new(stream);
+                let mut buf = Vec::with_capacity(80);
+                let bytes = header.consensus_encode(&mut buf).unwrap();
 
-                let header_buf = Vec::new();
-                let bytes = header.consensus_encode(header_buf).unwrap();
+                let digest = &[0u8; 256];
 
-                // allocate space on device and copy numbers
-                // let mut encoded_header_box = DeviceBox::new()
+                unsafe {
+                    sha256_cuda(buf.as_mut_ptr(), digest, bytes as i32);
+                }
+
+                println!("{}", hex::encode(digest));
 
                 let target_bytes = BlockHeader::u256_from_compact_target(header.bits).to_be_bytes();
                 let target_value = BigUint::from_bytes_be(&target_bytes);
 
-                let hash = header.block_hash().into_inner();
-                let hash_value = BigUint::from_bytes_be(&hash);
+                let hash_value = BigUint::from_bytes_be(digest);
 
-                println!("{} :: {} {}", cpu, nonce, hex::encode(hash));
+                println!("{} :: {} {}", cpu, nonce, hex::encode(digest));
 
                 if hash_value < target_value {
                     let won_block_result = WonBlockResult {
-                        hash: hex::encode(hash),
+                        hash: hex::encode(digest),
                         nonce,
                     };
 
@@ -260,6 +237,11 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[link(name = "sha256_cuda", kinda = "static")]
+extern "C" {
+    fn sha256_cuda(data: *mut u8, digest: &[u8; 256], n: i32);
 }
 
 pub async fn create_coinbase(

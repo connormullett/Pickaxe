@@ -155,24 +155,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cuda-config"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ee74643f7430213a1a78320f88649de309b20b80818325575e393f848f79f5d"
-dependencies = [
- "glob",
-]
-
-[[package]]
-name = "cuda-driver-sys"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d4c552cc0de854877d80bcd1f11db75d42be32962d72a6799b88dcca88fffbd"
-dependencies = [
- "cuda-config",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -291,12 +273,6 @@ dependencies = [
  "libc",
  "wasi 0.10.0+wasi-snapshot-preview1",
 ]
-
-[[package]]
-name = "glob"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b919933a397b79c37e33b77bb2aa3dc8eb6e165ad809e58ff75bc7db2e34574"
 
 [[package]]
 name = "hashbrown"
@@ -457,6 +433,7 @@ dependencies = [
  "anyhow",
  "base64",
  "bitcoin",
+ "cc",
  "clap",
  "futures",
  "hex",
@@ -466,7 +443,6 @@ dependencies = [
  "num_cpus",
  "rand",
  "rs_merkle",
- "rustacuda",
  "serde",
  "serde_json",
  "tokio",
@@ -570,35 +546,6 @@ checksum = "a632a43487c1332be8e183588079f89b6820fab24e04db49521eacd536837372"
 dependencies = [
  "micromath",
  "sha2",
-]
-
-[[package]]
-name = "rustacuda"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47208516ab5338b592d63560e90eaef405d0ec880347eaf7742d893b0a31e228"
-dependencies = [
- "bitflags",
- "cuda-driver-sys",
- "rustacuda_core",
- "rustacuda_derive",
-]
-
-[[package]]
-name = "rustacuda_core"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3858b08976dc2f860c5efbbb48cdcb0d4fafca92a6ac0898465af16c0dbe848"
-
-[[package]]
-name = "rustacuda_derive"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43ce8670a1a1d0fc2514a3b846dacdb65646f9bd494b6674cfacbb4ce430bd7e"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
