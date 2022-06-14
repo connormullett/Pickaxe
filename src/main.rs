@@ -12,7 +12,7 @@ use std::{
 use bitcoin::{
     consensus::{deserialize, serialize, Encodable},
     hashes::hex::FromHex,
-    BlockHash, BlockHeader, OutPoint, Script, Transaction, TxIn, TxMerkleNode, TxOut,
+    Block, BlockHash, BlockHeader, OutPoint, Script, Transaction, TxIn, TxMerkleNode, TxOut,
 };
 use clap::Parser;
 use jsonrpc::{arg, Client};
@@ -36,8 +36,7 @@ struct HeaderTemplate {
 
 #[derive(Clone)]
 struct WonBlockResult {
-    hash: String,
-    nonce: u32,
+    header: BlockHeader,
 }
 
 #[derive(Parser)]
@@ -112,7 +111,6 @@ async fn main() -> anyhow::Result<()> {
 
     let client = Client::simple_http("127.0.0.1", Some(flags.name), Some(flags.password))
         .expect("client creation error");
-
     let params = GetBlockTemplateParams {
         rules: vec!["segwit".to_string()],
     };
@@ -192,29 +190,18 @@ async fn main() -> anyhow::Result<()> {
                     nonce,
                 };
 
-                let mut buf = Vec::with_capacity(80);
-                let bytes = header.consensus_encode(&mut buf).unwrap();
-
-                let digest = &[0u8; 256];
-
-                unsafe {
-                    sha256_cuda(buf.as_mut_ptr(), digest, bytes as i32);
-                }
-
-                println!("{}", hex::encode(digest));
+                let hash = header.block_hash();
+                let hash_value = hash.as_hash().to_vec();
 
                 let target_bytes = BlockHeader::u256_from_compact_target(header.bits).to_be_bytes();
                 let target_value = BigUint::from_bytes_be(&target_bytes);
 
-                let hash_value = BigUint::from_bytes_be(digest);
+                let hash_value = BigUint::from_bytes_be(&hash_value);
 
-                println!("{} :: {} {}", cpu, nonce, hex::encode(digest));
+                println!("{} :: {} {}", cpu, nonce, hex::encode(hash));
 
                 if hash_value < target_value {
-                    let won_block_result = WonBlockResult {
-                        hash: hex::encode(digest),
-                        nonce,
-                    };
+                    let won_block_result = WonBlockResult { header };
 
                     thread_tx.send(won_block_result).unwrap();
                     break;
@@ -225,23 +212,29 @@ async fn main() -> anyhow::Result<()> {
         children.push(child);
     }
 
-    let won_block_hash = rx.recv().unwrap();
+    let won_block_header = rx.recv().unwrap();
 
-    println!(
-        "WON BLOCK! {} with nonce {}",
-        won_block_hash.hash, won_block_hash.nonce
-    );
+    let block = Block {
+        header: won_block_header.header,
+        txdata: transactions,
+    };
+
+    let mut encoded_block = vec![];
+    block.consensus_encode(&mut encoded_block).unwrap();
+
+    let submit_block_params = hex::encode(encoded_block);
+    let args = vec![arg(submit_block_params)];
+    let request = client.build_request("submitblock", &args);
+
+    let response = client.send_request(request).unwrap();
+
+    println!("response {:?}", response);
 
     for child in children {
         child.join().expect("child thread panicked");
     }
 
     Ok(())
-}
-
-#[link(name = "sha256_cuda", kinda = "static")]
-extern "C" {
-    fn sha256_cuda(data: *mut u8, digest: &[u8; 256], n: i32);
 }
 
 pub async fn create_coinbase(
