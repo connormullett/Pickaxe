@@ -1,2 +1,4 @@
 /target
 template_example
+cuda/*.o
+cuda/*.a
